@@ -1,0 +1,6 @@
+vpn_interface: "ovpn_br0"  # Или nwg0 для WireGuard, из ifconfig
+repo_dir: "/opt/etc/ip-address"  # Директория, куда клонирован RockBlack-VPN/ip-address
+files:
+  - "Global/Youtube/youtube.bat"  # Пример, замените на реальные имена файлов из репо (например, если есть несколько для YouTube)
+  - "Global/Instagram/instagram.bat"
+  - "Global/Twitter/twitter.bat"
