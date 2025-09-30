@@ -13,7 +13,7 @@ mkdir -p /opt/etc/ndm/ifstatechanged.d
 git clone https://github.com/RockBlack-VPN/ip-address /opt/etc/ip-address
 
 # Клон вашего репо с кодом (замените на реальный URL репо)
-git clone https://github.com/ngenious-lab/keenetic-routes-via-vpn /tmp/vpn-router
+git clone https://github.com/ngenious-lab/keenetic-routes-via-vpn.git /tmp/vpn-router
 cd /tmp/vpn-router
 
 # Компиляция (статическая для MIPS/ARM Keenetic)
