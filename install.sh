@@ -16,15 +16,16 @@ ping -c 1 github.com >/dev/null 2>&1 || fail "Нет подключения к �
 echo "Обновление списка пакетов Entware..."
 opkg update || fail "Не удалось обновить список пакетов. Проверьте интернет или конфигурацию Entware."
 
-# Установка зависимостей
-echo "Установка зависимостей (git, git-http, ca-bundle, ca-certificates, golang, yq)..."
-opkg install git git-http ca-bundle ca-certificates golang yq || {
-    echo "Ошибка при установке пакетов. Проверьте логи выше. Возможные причины:"
-    echo "- Пакеты golang или yq отсутствуют в репозитории Entware."
-    echo "- Недостаточно места на диске."
-    echo "- Проблемы с доступом к репозиторию Entware."
-    fail "Не удалось установить зависимости."
-}
+# Установка зависимостей (без golang и yq, если они недоступны)
+echo "Установка зависимостей (git, git-http, ca-bundle, ca-certificates)..."
+opkg install git git-http ca-bundle ca-certificates || fail "Не удалось установить зависимости. Проверьте интернет или место на диске."
+
+# Проверка наличия бинарника vpn-router
+if [ ! -f "/opt/bin/vpn-router" ]; then
+    echo "Бинарник vpn-router не найден в /opt/bin."
+    echo "Скомпилируйте его на другом устройстве (GOARCH=mipsle GOOS=linux go build -o vpn-router main.go) и скопируйте в /opt/bin/vpn-router."
+    fail "Отсутствует бинарник vpn-router."
+fi
 
 # Создание директорий
 echo "Создание директорий..."
@@ -53,37 +54,33 @@ rm -rf /tmp/vpn-router
 git clone https://github.com/ngenious-lab/keenetic-routes-via-vpn /tmp/vpn-router || fail "Не удалось клонировать репозиторий сервиса. Проверьте интернет или URL репозитория."
 cd /tmp/vpn-router || fail "Не удалось перейти в /tmp/vpn-router."
 
-# Компиляция Go-программы
-echo "Компиляция сервиса..."
-GOARCH=mipsle GOOS=linux go build -o /opt/bin/vpn-router main.go || fail "Не удалось скомпилировать сервис. Проверьте наличие golang и корректность исходного кода."
-
 # Проверка наличия config.yaml.example
 if [ ! -f "config.yaml.example" ]; then
-    echo "Предупреждение: config.yaml.example не найден в репозитории. Создается пустой config.yaml."
+    echo "Предупреждение: config.yaml.example не найден. Создается базовый config.yaml."
     cat <<EOF > /opt/etc/vpn-router/config.yaml
 vpn_interface: "ovpn_br0"
 repo_dir: "/opt/etc/ip-address"
 files:
-  - "Global/Youtube/youtube.bat"
-  - "Global/Instagram/instagram.bat"
+    - "Global/Youtube/youtube.bat"
+    - "Global/Instagram/instagram.bat"
 EOF
 else
     cp config.yaml.example /opt/etc/vpn-router/config.yaml || fail "Не удалось скопировать config.yaml.example."
 fi
 
-# Установка хук-скрипта
+# Установка хук-скрипта (без yq)
 echo "Установка хук-скрипта..."
 cat <<EOF > /opt/etc/vpn-router/ifstatechanged.sh
 #!/bin/sh
-IFACE=\$(yq e '.vpn_interface' /opt/etc/vpn-router/config.yaml)
+IFACE=\$(grep 'vpn_interface' /opt/etc/vpn-router/config.yaml | cut -d'"' -f2)
 if [ "\$INTERFACE" != "\$IFACE" ]; then
-  exit 0
+    exit 0
 fi
 case "\$STATE" in
-  up)
+    up)
     /opt/bin/vpn-router start
     ;;
-  down)
+    down)
     /opt/bin/vpn-router stop
     ;;
 esac
