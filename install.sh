@@ -67,11 +67,16 @@ if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
     if [ -z "$SHA256_AVAILABLE" ] || [ "$SHA256_AVAILABLE" -ne 0 ]; then
         echo "Скачивание SHA256 checksum для $BINARY..."
         curl -L -o /opt/bin/$BINARY.sha256 "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/$BINARY.sha256" || {
-            echo "Предупреждение: Не удалось скачать SHA256 checksum. Продолжить без проверки? (y/n)"
-            read -r response
-            if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
-                rm -f /opt/bin/vpn-router
-                fail "Установка прервана из-за отсутствия SHA256 checksum."
+            echo "Предупреждение: Не удалось скачать SHA256 checksum."
+            if [ -t 0 ]; then
+                echo "Продолжить без проверки SHA256? (y/n)"
+                read -r response
+                if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
+                    rm -f /opt/bin/vpn-router
+                    fail "Установка прервана из-за отсутствия SHA256 checksum."
+                fi
+            else
+                echo "Неинтерактивный режим, пропускаем проверку SHA256."
             fi
         }
         
@@ -85,13 +90,16 @@ if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
                 rm -f /opt/bin/computed.sha256 /opt/bin/expected.sha256
             else
                 echo "Ошибка: SHA256 проверка не пройдена: бинарник поврежден или неверный."
-                echo "Продолжить установку без проверки SHA256? (y/n)"
-                read -r response
-                if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
-                    rm -f /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256 /opt/bin/expected.sha256
-                    fail "Установка прервана из-за неудачной проверки SHA256."
+                if [ -t 0 ]; then
+                    echo "Продолжить установку без проверки SHA256? (y/n)"
+                    read -r response
+                    if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
+                        rm -f /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256 /opt/bin/expected.sha256
+                        fail "Установка прервана из-за неудачной проверки SHA256."
+                    fi
+                else
+                    echo "Неинтерактивный режим, пропускаем проверку SHA256."
                 fi
-                echo "Продолжаем установку без проверки SHA256..."
                 rm -f /opt/bin/computed.sha256 /opt/bin/expected.sha256
             fi
         fi
