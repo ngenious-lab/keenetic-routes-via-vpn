@@ -16,7 +16,7 @@ ping -c 1 github.com >/dev/null 2>&1 || fail "Нет подключения к �
 echo "Обновление списка пакетов Entware..."
 opkg update || fail "Не удалось обновить список пакетов. Проверьте интернет или конфигурацию Entware."
 
-# Установка зависимостей (без golang и yq)
+# Установка зависимостей
 echo "Установка зависимостей (git, git-http, ca-bundle, ca-certificates, curl)..."
 opkg install git git-http ca-bundle ca-certificates curl || fail "Не удалось установить зависимости. Проверьте интернет или место на диске."
 
@@ -32,7 +32,7 @@ command -v sha256sum >/dev/null 2>&1 || {
 # Проверка и скачивание бинарника
 echo "Проверка бинарника vpn-router..."
 if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
-    ARCH=$(uname -m)
+    ARCH=`uname -m`
     case $ARCH in
         mips*)
             BINARY="vpn-router-mips"
@@ -122,7 +122,7 @@ mkdir -p /opt/var/log || fail "Не удалось создать /opt/var/log. 
 # Клонирование RockBlack-VPN/ip-address
 if [ -d "/opt/etc/ip-address" ]; then
     echo "Директория /opt/etc/ip-address уже существует."
-    if [ -n "$(ls -A /opt/etc/ip-address)" ]; then
+    if [ -n "`ls -A /opt/etc/ip-address`" ]; then
         echo "Предупреждение: /opt/etc/ip-address не пуста. Пропускаю клонирование."
     else
         rm -rf /opt/etc/ip-address || fail "Не удалось удалить пустую директорию /opt/etc/ip-address."
@@ -149,6 +149,9 @@ repo_dir: "/opt/etc/ip-address"
 files:
   - "Global/Youtube/youtube.bat"
   - "Global/Instagram/instagram.bat"
+ips:
+  - "192.168.100.0/24"
+  - "10.0.0.0/16"
 EOF
 else
     cp config.yaml.example /opt/etc/vpn-router/config.yaml || fail "Не удалось скопировать config.yaml.example."
@@ -158,10 +161,22 @@ fi
 echo "Установка хук-скрипта..."
 cat <<EOF > /opt/etc/vpn-router/ifstatechanged.sh
 #!/bin/sh
-IFACE=\$(grep 'vpn_interface' /opt/etc/vpn-router/config.yaml | cut -d'"' -f2)
+# Хук-скрипт для обработки изменения состояния VPN-интерфейса
+
+# Получаем имя VPN-интерфейса из конфигурации, используя обратные кавычки для совместимости с BusyBox
+IFACE=\`grep 'vpn_interface' /opt/etc/vpn-router/config.yaml | cut -d'"' -f2\`
+if [ -z "\$IFACE" ]; then
+  echo "Ошибка: Не удалось определить vpn_interface из /opt/etc/vpn-router/config.yaml" >> /opt/var/log/vpn-router.log 2>&1
+  exit 1
+fi
+
+# Пропускаем, если интерфейс не совпадает
 if [ "\$INTERFACE" != "\$IFACE" ]; then
   exit 0
 fi
+
+# Создаем директорию для логов, если не существует
+mkdir -p /opt/var/log 2>/dev/null
 
 # Проверка состояния VPN-интерфейса
 if ! ip link show "\$IFACE" up >/dev/null 2>&1; then
@@ -177,22 +192,45 @@ fi
 
 case "\$STATE" in
   up)
+    echo "VPN-интерфейс \$IFACE включен. Применяем маршруты..." >> /opt/var/log/vpn-router.log 2>&1
     # Очищаем таблицу маршрутов 1000
-    ip route flush table 1000 2>/dev/null || echo "Предупреждение: Не удалось очистить таблицу маршрутов 1000" >> /opt/var/log/vpn-router.log 2>&1
+    ip route flush table 1000 2>/dev/null || {
+      echo "Предупреждение: Не удалось очистить таблицу маршрутов 1000" >> /opt/var/log/vpn-router.log 2>&1
+    }
     # Защищаем локальную сеть от маршрутизации через VPN
-    ip rule add from 192.168.0.0/16 lookup main prio 100 2>/dev/null || echo "Предупреждение: Не удалось добавить правило для локальной сети" >> /opt/var/log/vpn-router.log 2>&1
+    ip rule add from 192.168.0.0/16 lookup main prio 100 2>/dev/null || {
+      echo "Предупреждение: Не удалось добавить правило для локальной сети 192.168.0.0/16" >> /opt/var/log/vpn-router.log 2>&1
+    }
+    # Запускаем vpn-router start
     /opt/bin/vpn-router start >> /opt/var/log/vpn-router.log 2>&1
+    if [ \$? -ne 0 ]; then
+      echo "Ошибка: /opt/bin/vpn-router start завершился с ошибкой" >> /opt/var/log/vpn-router.log 2>&1
+      exit 2
+    fi
+    echo "Маршруты успешно применены для таблицы 1000" >> /opt/var/log/vpn-router.log 2>&1
     ;;
   down)
+    echo "VPN-интерфейс \$IFACE выключен. Очищаем маршруты..." >> /opt/var/log/vpn-router.log 2>&1
     # Очищаем таблицу маршрутов и правила
-    ip route flush table 1000 2>/dev/null || echo "Предупреждение: Не удалось очистить таблицу маршрутов 1000" >> /opt/var/log/vpn-router.log 2>&1
+    ip route flush table 1000 2>/dev/null || {
+      echo "Предупреждение: Не удалось очистить таблицу маршрутов 1000" >> /opt/var/log/vpn-router.log 2>&1
+    }
     ip rule del from 192.168.0.0/16 lookup main prio 100 2>/dev/null || true
     /opt/bin/vpn-router stop >> /opt/var/log/vpn-router.log 2>&1
+    if [ \$? -ne 0 ]; then
+      echo "Ошибка: /opt/bin/vpn-router stop завершился с ошибкой" >> /opt/var/log/vpn-router.log 2>&1
+      exit 2
+    fi
+    echo "Маршруты успешно удалены из таблицы 1000" >> /opt/var/log/vpn-router.log 2>&1
     ;;
 esac
+
+exit 0
 EOF
 chmod +x /opt/etc/vpn-router/ifstatechanged.sh || fail "Не удалось установить права на ifstatechanged.sh."
 ln -sf /opt/etc/vpn-router/ifstatechanged.sh /opt/etc/ndm/ifstatechanged.d/vpn-router.sh || fail "Не удалось создать симлинк для хука."
+# Исправляем окончания строк
+sed -i 's/\r$//' /opt/etc/vpn-router/ifstatechanged.sh || fail "Не удалось исправить окончания строк в ifstatechanged.sh."
 
 # Установка cron-задания
 echo "Установка cron-задания для ежедневного обновления..."
@@ -203,11 +241,11 @@ echo "Очистка временных файлов..."
 rm -rf /tmp/vpn-router || fail "Не удалось удалить временные файлы."
 
 echo "Установка завершена успешно!"
-echo "1. Отредактируйте /opt/etc/vpn-router/config.yaml, указав ваш VPN-интерфейс (например, nwg1 для WireGuard) и нужные файлы."
+echo "1. Отредактируйте /opt/etc/vpn-router/config.yaml, указав ваш VPN-интерфейс (например, nwg1 для WireGuard), нужные файлы и кастомные IP-сети."
 echo "2. Убедитесь, что VPN-интерфейс активен и имеет доступ к интернету (ping -I nwg1 8.8.8.8)."
 echo "3. Перезапустите VPN-соединение для применения маршрутов."
 echo "Для ручного тестирования:"
-echo "- /opt/bin/vpn-router update (обновить маршруты)"
+echo "- /opt/bin/vpn-router update (обновить и применить маршруты, включая кастомные IP)"
 echo "- /opt/bin/vpn-router start (применить маршруты)"
 echo "- /opt/bin/vpn-router stop (удалить маршруты)"
 echo "- ip route show table 1000 (проверить активные маршруты)"
