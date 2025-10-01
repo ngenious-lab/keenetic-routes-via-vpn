@@ -61,6 +61,9 @@ if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
         fail "Не удалось скачать бинарник."
     }
     
+    # Проверка наличия бинарника перед установкой прав
+    [ -f "/opt/bin/vpn-router" ] || fail "Бинарник /opt/bin/vpn-router не создан. Проверьте процесс скачивания."
+    
     if [ -z "$SHA256_AVAILABLE" ] || [ "$SHA256_AVAILABLE" -ne 0 ]; then
         echo "Скачивание SHA256 checksum для $BINARY..."
         curl -L -o /opt/bin/$BINARY.sha256 "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/$BINARY.sha256" || {
@@ -75,20 +78,21 @@ if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
         # Проверка SHA256, если checksum-файл скачан
         if [ -f "/opt/bin/$BINARY.sha256" ]; then
             echo "Проверка целостности бинарника..."
-            sha256sum /opt/bin/vpn-router | cut -d" " -f1 > /opt/bin/computed.sha256
-            if cmp /opt/bin/computed.sha256 /opt/bin/$BINARY.sha256; then
+            sha256sum /opt/bin/vpn-router | cut -d" " -f1 | tr '[:upper:]' '[:lower:]' > /opt/bin/computed.sha256
+            tr '[:upper:]' '[:lower:]' < /opt/bin/$BINARY.sha256 > /opt/bin/expected.sha256
+            if cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256; then
                 echo "SHA256 проверка пройдена: бинарник цел."
-                rm /opt/bin/computed.sha256
+                rm -f /opt/bin/computed.sha256 /opt/bin/expected.sha256
             else
                 echo "Ошибка: SHA256 проверка не пройдена: бинарник поврежден или неверный."
                 echo "Продолжить установку без проверки SHA256? (y/n)"
                 read -r response
                 if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
-                    rm -f /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256
+                    rm -f /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256 /opt/bin/expected.sha256
                     fail "Установка прервана из-за неудачной проверки SHA256."
                 fi
                 echo "Продолжаем установку без проверки SHA256..."
-                rm /opt/bin/computed.sha256
+                rm -f /opt/bin/computed.sha256 /opt/bin/expected.sha256
             fi
         fi
     else
