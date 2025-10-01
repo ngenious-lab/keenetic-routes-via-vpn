@@ -16,21 +16,69 @@ ping -c 1 github.com >/dev/null 2>&1 || fail "Нет подключения к �
 echo "Обновление списка пакетов Entware..."
 opkg update || fail "Не удалось обновить список пакетов. Проверьте интернет или конфигурацию Entware."
 
-# Установка зависимостей (без golang и yq, если они недоступны)
-echo "Установка зависимостей (git, git-http, ca-bundle, ca-certificates)..."
-opkg install git git-http ca-bundle ca-certificates || fail "Не удалось установить зависимости. Проверьте интернет или место на диске."
+# Установка зависимостей (без golang и yq)
+echo "Установка зависимостей (git, git-http, ca-bundle, ca-certificates, curl)..."
+opkg install git git-http ca-bundle ca-certificates curl || fail "Не удалось установить зависимости. Проверьте интернет или место на диске."
 
-# Проверка наличия бинарника vpn-router
-if [ ! -f "/opt/bin/vpn-router" ]; then
-    echo "Бинарник vpn-router не найден в /opt/bin."
-    echo "Скомпилируйте его на другом устройстве (GOARCH=mipsle GOOS=linux go build -o vpn-router main.go) и скопируйте в /opt/bin/vpn-router."
-    fail "Отсутствует бинарник vpn-router."
+# Проверка и скачивание бинарника
+echo "Проверка бинарника vpn-router..."
+if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
+    ARCH=$(uname -m)
+    case $ARCH in
+        mips*)
+            BINARY="vpn-router-mips"
+            ;;
+        mipsel*|mips32el*)
+            BINARY="vpn-router-mipsel"
+            ;;
+        aarch64*|arm64*)
+            BINARY="vpn-router-aarch64"
+            ;;
+        arm*)
+            echo "Предупреждение: ARM архитектура. Попробуем mipsel как fallback, но лучше соберите вручную."
+            BINARY="vpn-router-mipsel"
+            ;;
+        *)
+            echo "Неизвестная архитектура: $ARCH. Доступны: mips, mipsel, aarch64."
+            echo "Соберите бинарник локально и скопируйте в /opt/bin/vpn-router."
+            fail "Поддержка архитектуры $ARCH не реализована."
+            ;;
+    esac
+    
+    echo "Скачивание $BINARY для архитектуры $ARCH из GitHub Releases..."
+    curl -L -o /opt/bin/vpn-router "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/$BINARY" || {
+        echo "Ошибка скачивания бинарника. Проверьте интернет или создайте Release в репозитории."
+        echo "Альтернатива: Соберите бинарник локально (GOOS=linux GOARCH=$ARCH go build -o /opt/bin/vpn-router main.go) и скопируйте."
+        fail "Не удалось скачать бинарник."
+    }
+    
+    echo "Скачивание SHA256 checksum для $BINARY..."
+    curl -L -o /opt/bin/$BINARY.sha256 "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/$BINARY.sha256" || {
+        echo "Предупреждение: Не удалось скачать SHA256 checksum. Пропускаем проверку целостности."
+    }
+    
+    # Проверка SHA256, если checksum-файл скачан
+    if [ -f "/opt/bin/$BINARY.sha256" ]; then
+        echo "Проверка целостности бинарника..."
+        sha256sum /opt/bin/vpn-router | cut -d" " -f1 > /opt/bin/computed.sha256
+        if cmp /opt/bin/computed.sha256 /opt/bin/$BINARY.sha256; then
+            echo "SHA256 проверка пройдена: бинарник цел."
+            rm /opt/bin/computed.sha256
+        else
+            rm /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256
+            fail "SHA256 проверка не пройдена: бинарник поврежден или неверный."
+        fi
+    fi
+    
+    chmod +x /opt/bin/vpn-router || fail "Не удалось установить права на /opt/bin/vpn-router."
+    echo "Бинарник скачан и готов к использованию."
+else
+    echo "Бинарник /opt/bin/vpn-router уже существует и исполняемый."
 fi
 
 # Создание директорий
 echo "Создание директорий..."
 mkdir -p /opt/etc/vpn-router || fail "Не удалось создать /opt/etc/vpn-router. Проверьте права доступа."
-mkdir -p /opt/bin || fail "Не удалось создать /opt/bin. Проверьте права доступа."
 mkdir -p /opt/etc/ndm/ifstatechanged.d || fail "Не удалось создать /opt/etc/ndm/ifstatechanged.d. Проверьте права доступа."
 
 # Клонирование RockBlack-VPN/ip-address
@@ -48,7 +96,7 @@ else
     git clone https://github.com/RockBlack-VPN/ip-address /opt/etc/ip-address || fail "Не удалось клонировать RockBlack-VPN/ip-address. Проверьте интернет или права доступа."
 fi
 
-# Клонирование репозитория сервиса
+# Клонирование репозитория сервиса (для config и скриптов)
 echo "Клонирование репозитория сервиса..."
 rm -rf /tmp/vpn-router
 git clone https://github.com/ngenious-lab/keenetic-routes-via-vpn /tmp/vpn-router || fail "Не удалось клонировать репозиторий сервиса. Проверьте интернет или URL репозитория."
@@ -61,26 +109,26 @@ if [ ! -f "config.yaml.example" ]; then
 vpn_interface: "ovpn_br0"
 repo_dir: "/opt/etc/ip-address"
 files:
-    - "Global/Youtube/youtube.bat"
-    - "Global/Instagram/instagram.bat"
+  - "Global/Youtube/youtube.bat"
+  - "Global/Instagram/instagram.bat"
 EOF
 else
     cp config.yaml.example /opt/etc/vpn-router/config.yaml || fail "Не удалось скопировать config.yaml.example."
 fi
 
-# Установка хук-скрипта (без yq)
+# Установка хук-скрипта (без yq, с grep/cut)
 echo "Установка хук-скрипта..."
 cat <<EOF > /opt/etc/vpn-router/ifstatechanged.sh
 #!/bin/sh
 IFACE=\$(grep 'vpn_interface' /opt/etc/vpn-router/config.yaml | cut -d'"' -f2)
 if [ "\$INTERFACE" != "\$IFACE" ]; then
-    exit 0
+  exit 0
 fi
 case "\$STATE" in
-    up)
+  up)
     /opt/bin/vpn-router start
     ;;
-    down)
+  down)
     /opt/bin/vpn-router stop
     ;;
 esac
