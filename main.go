@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-<<<<<<< HEAD
 	"io/ioutil"
 	"net"
 	"os"
@@ -10,13 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-=======
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 	"gopkg.in/yaml.v3"
-	"io/ioutil"
-	"os"
-	"path/filepath"
-	"strings"
 )
 
 // Config представляет структуру конфигурационного файла
@@ -24,11 +17,7 @@ type Config struct {
 	VPNInterface string   `yaml:"vpn_interface"`
 	RepoDir      string   `yaml:"repo_dir"`
 	Files        []string `yaml:"files"`
-<<<<<<< HEAD
 	IPs          []string `yaml:"ips"`
-=======
-	IPs          []string `yaml:"ips"` // Новое поле для кастомных IP-сетей
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 }
 
 // loadConfig загружает конфигурацию из YAML-файла
@@ -44,11 +33,7 @@ func loadConfig(path string) (Config, error) {
 	return config, nil
 }
 
-<<<<<<< HEAD
 // updateRoutes обновляет маршруты и применяет их в таблицу 1000
-=======
-// updateRoutes обновляет маршруты из репозитория и кастомных IP
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 func updateRoutes(config Config) error {
 	var routes []string
 
@@ -95,7 +80,6 @@ func updateRoutes(config Config) error {
 	if err := ioutil.WriteFile("/opt/etc/vpn-router/current_routes.txt", []byte(strings.Join(routes, "\n")+"\n"), 0644); err != nil {
 		return fmt.Errorf("не удалось записать current_routes.txt: %v", err)
 	}
-<<<<<<< HEAD
 	fmt.Fprintf(os.Stderr, "Маршруты успешно сохранены в /opt/etc/vpn-router/current_routes.txt\n")
 
 	// 3. Проверка активности VPN-интерфейса
@@ -169,27 +153,12 @@ func isInterfaceUp(iface string) bool {
 func maskToCIDR(ip, mask string) (string, error) {
 	// Заглушка, замените на реальную логику (например, с использованием net.IP)
 	return ip + "/24", nil
-=======
-	return nil
-}
-
-// maskToCIDR преобразует IP и маску подсети в CIDR-нотацию
-func maskToCIDR(ip, mask string) (string, error) {
-	// Простая реализация, предполагает валидные входные данные
-	// Реальная реализация должна парсить IP и маску и вычислять CIDR
-	return ip + "/24", nil // Заглушка, замените на реальную логику
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 }
 
 // isValidCIDR проверяет, является ли строка валидным CIDR
 func isValidCIDR(cidr string) bool {
-<<<<<<< HEAD
 	_, _, err := net.ParseCIDR(cidr)
 	return err == nil
-=======
-	// Заглушка, замените на реальную проверку (например, с использованием net.ParseCIDR)
-	return strings.Contains(cidr, "/")
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 }
 
 // removeDuplicates удаляет дубликаты из списка строк
@@ -205,11 +174,7 @@ func removeDuplicates(list []string) []string {
 	return result
 }
 
-<<<<<<< HEAD
 // main обрабатывает команды update, start, stop
-=======
-// Пример функции main (упрощённая)
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 func main() {
 	if len(os.Args) < 2 {
 		fmt.Println("Использование: vpn-router [update|start|stop]")
@@ -228,7 +193,6 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Ошибка обновления маршрутов: %v\n", err)
 			os.Exit(1)
 		}
-<<<<<<< HEAD
 		fmt.Println("Маршруты успешно обновлены и применены")
 	case "start":
 		if err := startRoutes(config); err != nil {
@@ -242,13 +206,6 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Println("Маршруты успешно удалены")
-=======
-		fmt.Println("Маршруты успешно обновлены")
-	case "start":
-		// Логика применения маршрутов
-	case "stop":
-		// Логика удаления маршрутов
->>>>>>> fc119a5d7c7abd52e470eee8a21efa84c77ebd82
 	default:
 		fmt.Println("Неизвестная команда. Использование: vpn-router [update|start|stop]")
 		os.Exit(1)
