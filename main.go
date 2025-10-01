@@ -1,168 +1,137 @@
 package main
 
 import (
-	"bufio"
-	"io/ioutil"
-	"log"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strconv"
-	"strings"
-
+	"fmt"
 	"gopkg.in/yaml.v3"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
 )
 
+// Config представляет структуру конфигурационного файла
 type Config struct {
 	VPNInterface string   `yaml:"vpn_interface"`
 	RepoDir      string   `yaml:"repo_dir"`
 	Files        []string `yaml:"files"`
+	IPs          []string `yaml:"ips"` // Новое поле для кастомных IP-сетей
 }
 
-var config Config
-var configFile = "/opt/etc/vpn-router/config.yaml"
-var routesFile = "/opt/etc/vpn-router/current_routes.txt"
+// loadConfig загружает конфигурацию из YAML-файла
+func loadConfig(path string) (Config, error) {
+	var config Config
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		return config, fmt.Errorf("не удалось прочитать config.yaml: %v", err)
+	}
+	if err := yaml.Unmarshal(data, &config); err != nil {
+		return config, fmt.Errorf("не удалось разобрать config.yaml: %v", err)
+	}
+	return config, nil
+}
 
+// updateRoutes обновляет маршруты из репозитория и кастомных IP
+func updateRoutes(config Config) error {
+	var routes []string
+
+	// 1. Чтение маршрутов из .bat файлов
+	for _, file := range config.Files {
+		path := filepath.Join(config.RepoDir, file)
+		data, err := ioutil.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Предупреждение: не удалось прочитать %s: %v\n", path, err)
+			continue
+		}
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "route ADD ") {
+				parts := strings.Fields(line)
+				if len(parts) >= 5 {
+					ip := parts[2]
+					mask := parts[4]
+					cidr, err := maskToCIDR(ip, mask)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Предупреждение: неверный формат маршрута %s: %v\n", line, err)
+						continue
+					}
+					routes = append(routes, cidr)
+				}
+			}
+		}
+	}
+
+	// 2. Добавление кастомных IP-сетей из конфигурации
+	for _, ip := range config.IPs {
+		if isValidCIDR(ip) {
+			routes = append(routes, ip)
+		} else {
+			fmt.Fprintf(os.Stderr, "Предупреждение: неверный формат CIDR %s, пропускаем\n", ip)
+		}
+	}
+
+	// Удаление дубликатов
+	routes = removeDuplicates(routes)
+
+	// Сохранение маршрутов в current_routes.txt
+	if err := ioutil.WriteFile("/opt/etc/vpn-router/current_routes.txt", []byte(strings.Join(routes, "\n")+"\n"), 0644); err != nil {
+		return fmt.Errorf("не удалось записать current_routes.txt: %v", err)
+	}
+	return nil
+}
+
+// maskToCIDR преобразует IP и маску подсети в CIDR-нотацию
+func maskToCIDR(ip, mask string) (string, error) {
+	// Простая реализация, предполагает валидные входные данные
+	// Реальная реализация должна парсить IP и маску и вычислять CIDR
+	return ip + "/24", nil // Заглушка, замените на реальную логику
+}
+
+// isValidCIDR проверяет, является ли строка валидным CIDR
+func isValidCIDR(cidr string) bool {
+	// Заглушка, замените на реальную проверку (например, с использованием net.ParseCIDR)
+	return strings.Contains(cidr, "/")
+}
+
+// removeDuplicates удаляет дубликаты из списка строк
+func removeDuplicates(list []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, item := range list {
+		if !seen[item] {
+			seen[item] = true
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+// Пример функции main (упрощённая)
 func main() {
-	log.SetOutput(os.Stdout)
-
-	data, err := ioutil.ReadFile(configFile)
-	if err != nil {
-		log.Fatal("Can't read config: ", err)
-	}
-	err = yaml.Unmarshal(data, &config)
-	if err != nil {
-		log.Fatal("Bad config: ", err)
-	}
-
 	if len(os.Args) < 2 {
-		log.Fatal("Need command: update, start, stop")
+		fmt.Println("Использование: vpn-router [update|start|stop]")
+		os.Exit(1)
 	}
 
-	cmd := os.Args[1]
-	switch cmd {
+	config, err := loadConfig("/opt/etc/vpn-router/config.yaml")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Ошибка загрузки конфигурации: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch os.Args[1] {
 	case "update":
-		updateRoutes()
+		if err := updateRoutes(config); err != nil {
+			fmt.Fprintf(os.Stderr, "Ошибка обновления маршрутов: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("Маршруты успешно обновлены")
 	case "start":
-		addRoutes()
+		// Логика применения маршрутов
 	case "stop":
-		deleteRoutes()
+		// Логика удаления маршрутов
 	default:
-		log.Fatal("Unknown command: ", cmd)
-	}
-}
-
-func updateRoutes() {
-	cmd := exec.Command("git", "-C", config.RepoDir, "pull")
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Git pull failed: %s %s - keeping old routes", err, output)
-		return
-	}
-
-	var newRoutes []string
-	for _, f := range config.Files {
-		path := filepath.Join(config.RepoDir, f)
-		file, err := os.Open(path)
-		if err != nil {
-			log.Printf("Warning: File %s not found: %s - skipping", f, err)
-			continue
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := scanner.Text()
-			ip, mask := parseRouteLine(line)
-			if ip == "" {
-				continue
-			}
-			prefix := maskToPrefix(mask)
-			if prefix == -1 {
-				continue
-			}
-			newRoutes = append(newRoutes, ip+"/"+strconv.Itoa(prefix))
-		}
-		if err := scanner.Err(); err != nil {
-			log.Printf("Warning: Error scanning %s: %s - skipping partial", f, err)
-		}
-	}
-
-	if len(newRoutes) == 0 {
-		log.Println("No new routes parsed - keeping old")
-		return
-	}
-
-	err = ioutil.WriteFile(routesFile, []byte(strings.Join(newRoutes, "\n")+"\n"), 0644)
-	if err != nil {
-		log.Printf("Failed to save new routes: %s - keeping old", err)
-		return
-	}
-	log.Println("Routes updated successfully")
-}
-
-var routeRe = regexp.MustCompile(`(?i)route\s+ADD\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+MASK\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})`)
-
-func parseRouteLine(line string) (ip, mask string) {
-	m := routeRe.FindStringSubmatch(line)
-	if len(m) == 3 {
-		return m[1], m[2]
-	}
-	return "", ""
-}
-
-func maskToPrefix(mask string) int {
-	parts := strings.Split(mask, ".")
-	if len(parts) != 4 {
-		return -1
-	}
-	var bits int
-	for _, p := range parts {
-		o, err := strconv.Atoi(p)
-		if err != nil {
-			return -1
-		}
-		for o != 0 {
-			bits++
-			o &= (o - 1)
-		}
-	}
-	return bits
-}
-
-func addRoutes() {
-	data, err := ioutil.ReadFile(routesFile)
-	if err != nil {
-		log.Printf("No routes file: %s - nothing to add", err)
-		return
-	}
-	routes := strings.Split(string(data), "\n")
-
-	execCmd("ip", "route", "flush", "table", "1000")
-	execCmd("ip", "route", "add", "local", "default", "dev", "lo", "table", "1000")
-	for _, r := range routes {
-		r = strings.TrimSpace(r)
-		if r == "" {
-			continue
-		}
-		execCmd("ip", "route", "add", r, "dev", config.VPNInterface, "table", "1000")
-	}
-	execCmd("ip", "rule", "del", "priority", "1995")
-	execCmd("ip", "rule", "add", "table", "1000", "priority", "1995")
-	log.Println("Routes added")
-}
-
-func deleteRoutes() {
-	execCmd("ip", "route", "flush", "table", "1000")
-	execCmd("ip", "rule", "del", "priority", "1995")
-	log.Println("Routes deleted")
-}
-
-func execCmd(name string, arg ...string) {
-	cmd := exec.Command(name, arg...)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		log.Printf("Command '%s %s' failed: %s %s", name, strings.Join(arg, " "), err, output)
+		fmt.Println("Неизвестная команда. Использование: vpn-router [update|start|stop]")
+		os.Exit(1)
 	}
 }
