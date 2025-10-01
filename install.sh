@@ -20,6 +20,15 @@ opkg update || fail "Не удалось обновить список паке�
 echo "Установка зависимостей (git, git-http, ca-bundle, ca-certificates, curl)..."
 opkg install git git-http ca-bundle ca-certificates curl || fail "Не удалось установить зависимости. Проверьте интернет или место на диске."
 
+# Проверка наличия sha256sum
+command -v sha256sum >/dev/null 2>&1 || {
+    echo "Установка sha256sum (входит в coreutils-sha256sum)..."
+    opkg install coreutils-sha256sum || {
+        echo "Предупреждение: Не удалось установить coreutils-sha256sum. Проверка SHA256 будет пропущена."
+        SHA256_AVAILABLE=0
+    }
+}
+
 # Проверка и скачивание бинарника
 echo "Проверка бинарника vpn-router..."
 if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
@@ -52,22 +61,38 @@ if [ ! -f "/opt/bin/vpn-router" ] || [ ! -x "/opt/bin/vpn-router" ]; then
         fail "Не удалось скачать бинарник."
     }
     
-    echo "Скачивание SHA256 checksum для $BINARY..."
-    curl -L -o /opt/bin/$BINARY.sha256 "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/$BINARY.sha256" || {
-        echo "Предупреждение: Не удалось скачать SHA256 checksum. Пропускаем проверку целостности."
-    }
-    
-    # Проверка SHA256, если checksum-файл скачан
-    if [ -f "/opt/bin/$BINARY.sha256" ]; then
-        echo "Проверка целостности бинарника..."
-        sha256sum /opt/bin/vpn-router | cut -d" " -f1 > /opt/bin/computed.sha256
-        if cmp /opt/bin/computed.sha256 /opt/bin/$BINARY.sha256; then
-            echo "SHA256 проверка пройдена: бинарник цел."
-            rm /opt/bin/computed.sha256
-        else
-            rm /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256
-            fail "SHA256 проверка не пройдена: бинарник поврежден или неверный."
+    if [ -z "$SHA256_AVAILABLE" ] || [ "$SHA256_AVAILABLE" -ne 0 ]; then
+        echo "Скачивание SHA256 checksum для $BINARY..."
+        curl -L -o /opt/bin/$BINARY.sha256 "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/$BINARY.sha256" || {
+            echo "Предупреждение: Не удалось скачать SHA256 checksum. Продолжить без проверки? (y/n)"
+            read -r response
+            if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
+                rm -f /opt/bin/vpn-router
+                fail "Установка прервана из-за отсутствия SHA256 checksum."
+            fi
+        }
+        
+        # Проверка SHA256, если checksum-файл скачан
+        if [ -f "/opt/bin/$BINARY.sha256" ]; then
+            echo "Проверка целостности бинарника..."
+            sha256sum /opt/bin/vpn-router | cut -d" " -f1 > /opt/bin/computed.sha256
+            if cmp /opt/bin/computed.sha256 /opt/bin/$BINARY.sha256; then
+                echo "SHA256 проверка пройдена: бинарник цел."
+                rm /opt/bin/computed.sha256
+            else
+                echo "Ошибка: SHA256 проверка не пройдена: бинарник поврежден или неверный."
+                echo "Продолжить установку без проверки SHA256? (y/n)"
+                read -r response
+                if [ "$response" != "y" ] && [ "$response" != "Y" ]; then
+                    rm -f /opt/bin/vpn-router /opt/bin/$BINARY.sha256 /opt/bin/computed.sha256
+                    fail "Установка прервана из-за неудачной проверки SHA256."
+                fi
+                echo "Продолжаем установку без проверки SHA256..."
+                rm /opt/bin/computed.sha256
+            fi
         fi
+    else
+        echo "sha256sum не доступен, пропускаем проверку SHA256."
     fi
     
     chmod +x /opt/bin/vpn-router || fail "Не удалось установить права на /opt/bin/vpn-router."

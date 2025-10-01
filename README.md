@@ -27,7 +27,7 @@
 | MIPSel     | `curl -L -o /opt/bin/vpn-router https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/vpn-router-mipsel` | [Скачать](https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/vpn-router-mipsel) | [SHA256](https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/vpn-router-mipsel.sha256) |
 | AArch64    | `curl -L -o /opt/bin/vpn-router https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/vpn-router-aarch64` | [Скачать](https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/vpn-router-aarch64) | [SHA256](https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/latest/download/vpn-router-aarch64.sha256) |
 
-После скачивания выполните `chmod +x /opt/bin/vpn-router`. Установочный скрипт (`install.sh`) автоматически скачивает бинарник и проверяет его целостность с помощью SHA256 checksum. Для ручной проверки:
+После скачивания выполните `chmod +x /opt/bin/vpn-router`. Установочный скрипт (`install.sh`) автоматически скачивает бинарник и проверяет его целостность с помощью SHA256 checksum. Если проверка не удалась, вы можете продолжить установку, пропустив её (с предупреждением). Для ручной проверки:
 ```bash
 sha256sum /opt/bin/vpn-router | cut -d" " -f1 > /opt/bin/computed.sha256
 cmp /opt/bin/computed.sha256 /opt/bin/vpn-router-<arch>.sha256
@@ -48,7 +48,7 @@ cmp /opt/bin/computed.sha256 /opt/bin/vpn-router-<arch>.sha256
    curl -sfL https://raw.githubusercontent.com/ngenious-lab/keenetic-routes-via-vpn/main/install.sh | sh
    ```
    Скрипт:
-   - Устанавливает зависимости (`git`, `git-http`, `ca-bundle`, `ca-certificates`, `curl`).
+   - Устанавливает зависимости (`git`, `git-http`, `ca-bundle`, `ca-certificates`, `curl`, `coreutils-sha256sum`).
    - Скачивает подходящий бинарник из GitHub Releases (на основе архитектуры роутера) и проверяет его SHA256 checksum.
    - Клонирует репозиторий [RockBlack-VPN/ip-address](https://github.com/RockBlack-VPN/ip-address) в `/opt/etc/ip-address`.
    - Клонирует и настраивает сервис (конфиг, хук для VPN-интерфейса и задание cron для ежедневных обновлений).
@@ -123,8 +123,15 @@ files:
 - **Маршруты не применяются**: Проверьте логи в `/var/log/messages` на наличие ошибок. Убедитесь, что VPN включен и хук-скрипт находится в `/opt/etc/ndm/ifstatechanged.d`.
 - **Отсутствуют файлы**: Убедитесь, что пути к файлам в `config.yaml` соответствуют структуре репозитория RockBlack-VPN.
 - **Проблемы с обновлением через Git**: Проверьте доступ в интернет и наличие `ca-certificates` на роутере.
-- **Бинарник не скачивается или поврежден**: Убедитесь, что Release опубликован в репозитории. Проверьте SHA256 checksum вручную или соберите бинарник локально.
-- **Проблемы с SHA256**: Если проверка целостности не проходит, убедитесь, что бинарник и checksum-файл из одного релиза. Скачайте заново или соберите вручную.
+- **Бинарник не скачивается или поврежден**: Убедитесь, что Release опубликован в репозитории. Проверьте SHA256 checksum вручную или соберите бинарник локально:
+  ```bash
+  GOOS=linux GOARCH=<arch> go build -o vpn-router main.go
+  scp vpn-router root@<router-ip>:/opt/bin/
+  ```
+- **Проблемы с SHA256**: Если проверка целостности не проходит, убедитесь, что бинарник и checksum-файл из одного релиза. Скачайте заново или пропустите проверку в `install.sh` (выберите `y` при запросе). Если `sha256sum` недоступен, установите `coreutils-sha256sum`:
+  ```bash
+  opkg install coreutils-sha256sum
+  ```
 
 ## Удаление
 
