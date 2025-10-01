@@ -117,6 +117,7 @@ fi
 echo "Создание директорий..."
 mkdir -p /opt/etc/vpn-router || fail "Не удалось создать /opt/etc/vpn-router. Проверьте права доступа."
 mkdir -p /opt/etc/ndm/ifstatechanged.d || fail "Не удалось создать /opt/etc/ndm/ifstatechanged.d. Проверьте права доступа."
+mkdir -p /opt/var/log || fail "Не удалось создать /opt/var/log. Проверьте права доступа."
 
 # Клонирование RockBlack-VPN/ip-address
 if [ -d "/opt/etc/ip-address" ]; then
@@ -143,7 +144,7 @@ cd /tmp/vpn-router || fail "Не удалось перейти в /tmp/vpn-route
 if [ ! -f "config.yaml.example" ]; then
     echo "Предупреждение: config.yaml.example не найден. Создается базовый config.yaml."
     cat <<EOF > /opt/etc/vpn-router/config.yaml
-vpn_interface: "ovpn_br0"
+vpn_interface: "nwg1"
 repo_dir: "/opt/etc/ip-address"
 files:
   - "Global/Youtube/youtube.bat"
@@ -153,7 +154,7 @@ else
     cp config.yaml.example /opt/etc/vpn-router/config.yaml || fail "Не удалось скопировать config.yaml.example."
 fi
 
-# Установка хук-скрипта (без yq, с grep/cut)
+# Установка хук-скрипта
 echo "Установка хук-скрипта..."
 cat <<EOF > /opt/etc/vpn-router/ifstatechanged.sh
 #!/bin/sh
@@ -161,12 +162,32 @@ IFACE=\$(grep 'vpn_interface' /opt/etc/vpn-router/config.yaml | cut -d'"' -f2)
 if [ "\$INTERFACE" != "\$IFACE" ]; then
   exit 0
 fi
+
+# Проверка состояния VPN-интерфейса
+if ! ip link show "\$IFACE" up >/dev/null 2>&1; then
+  echo "Предупреждение: VPN-интерфейс \$IFACE не активен. Пропускаем применение маршрутов." >> /opt/var/log/vpn-router.log 2>&1
+  exit 0
+fi
+
+# Проверка доступности интернета через VPN
+if ! ping -c 1 -W 2 -I "\$IFACE" 8.8.8.8 >/dev/null 2>&1; then
+  echo "Предупреждение: VPN-интерфейс \$IFACE не имеет доступа к интернету. Пропускаем применение маршрутов." >> /opt/var/log/vpn-router.log 2>&1
+  exit 0
+fi
+
 case "\$STATE" in
   up)
-    /opt/bin/vpn-router start
+    # Очищаем таблицу маршрутов 1000
+    ip route flush table 1000 2>/dev/null || echo "Предупреждение: Не удалось очистить таблицу маршрутов 1000" >> /opt/var/log/vpn-router.log 2>&1
+    # Защищаем локальную сеть от маршрутизации через VPN
+    ip rule add from 192.168.0.0/16 lookup main prio 100 2>/dev/null || echo "Предупреждение: Не удалось добавить правило для локальной сети" >> /opt/var/log/vpn-router.log 2>&1
+    /opt/bin/vpn-router start >> /opt/var/log/vpn-router.log 2>&1
     ;;
   down)
-    /opt/bin/vpn-router stop
+    # Очищаем таблицу маршрутов и правила
+    ip route flush table 1000 2>/dev/null || echo "Предупреждение: Не удалось очистить таблицу маршрутов 1000" >> /opt/var/log/vpn-router.log 2>&1
+    ip rule del from 192.168.0.0/16 lookup main prio 100 2>/dev/null || true
+    /opt/bin/vpn-router stop >> /opt/var/log/vpn-router.log 2>&1
     ;;
 esac
 EOF
@@ -175,17 +196,19 @@ ln -sf /opt/etc/vpn-router/ifstatechanged.sh /opt/etc/ndm/ifstatechanged.d/vpn-r
 
 # Установка cron-задания
 echo "Установка cron-задания для ежедневного обновления..."
-echo "0 0 * * * /opt/bin/vpn-router update" > /opt/etc/cron.d/vpn-router || fail "Не удалось создать cron-задание."
+echo "0 0 * * * /opt/bin/vpn-router update >> /opt/var/log/vpn-router.log 2>&1" > /opt/etc/cron.d/vpn-router || fail "Не удалось создать cron-задание."
 
 # Очистка
 echo "Очистка временных файлов..."
 rm -rf /tmp/vpn-router || fail "Не удалось удалить временные файлы."
 
 echo "Установка завершена успешно!"
-echo "1. Отредактируйте /opt/etc/vpn-router/config.yaml, указав ваш VPN-интерфейс и нужные файлы."
-echo "2. Перезапустите VPN-соединение для применения маршрутов."
+echo "1. Отредактируйте /opt/etc/vpn-router/config.yaml, указав ваш VPN-интерфейс (например, nwg1 для WireGuard) и нужные файлы."
+echo "2. Убедитесь, что VPN-интерфейс активен и имеет доступ к интернету (ping -I nwg1 8.8.8.8)."
+echo "3. Перезапустите VPN-соединение для применения маршрутов."
 echo "Для ручного тестирования:"
 echo "- /opt/bin/vpn-router update (обновить маршруты)"
 echo "- /opt/bin/vpn-router start (применить маршруты)"
 echo "- /opt/bin/vpn-router stop (удалить маршруты)"
-echo "Логи: /var/log/messages или настройте /opt/etc/vpn-router/ifstatechanged.sh для записи в файл."
+echo "- ip route show table 1000 (проверить активные маршруты)"
+echo "Логи: /var/log/messages или /opt/var/log/vpn-router.log"

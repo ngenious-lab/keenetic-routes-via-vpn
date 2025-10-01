@@ -9,7 +9,7 @@
 - **Обработка ошибок**: При сбое обновления или отсутствии файла использует предыдущий список маршрутов.
 - **Гибкая конфигурация**: Использует простой YAML-файл для указания VPN-интерфейса и файлов со списками IP.
 - **Интеграция с VPN**: Автоматически применяет/удаляет маршруты при включении/выключении VPN.
-- **Логирование**: Вывод в syslog (`/var/log/messages`) с возможностью записи в файл.
+- **Логирование**: Вывод в syslog (`/var/log/messages`) и файл `/opt/var/log/vpn-router.log`.
 
 ## Требования
 
@@ -43,7 +43,14 @@ cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256
 1. **Убедитесь, что Entware установлен**  
    Проверьте, что Entware настроен на вашем роутере Keenetic. Инструкции по установке см. в [документации Keenetic по Entware](https://help.keenetic.com/hc/en-us/articles/360000374559-Entware).
 
-2. **Запустите установочный скрипт**  
+2. **Проверьте VPN-соединение**  
+   Убедитесь, что VPN-интерфейс (например, `nwg1` для WireGuard) активен и имеет доступ к интернету:
+   ```bash
+   ifconfig nwg1
+   ping -I nwg1 8.8.8.8
+   ```
+
+3. **Запустите установочный скрипт**  
    Для неинтерактивной установки используйте:
    ```bash
    curl -sfL https://raw.githubusercontent.com/ngenious-lab/keenetic-routes-via-vpn/main/install.sh | sh
@@ -57,30 +64,28 @@ cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256
    - Устанавливает зависимости (`git`, `git-http`, `ca-bundle`, `ca-certificates`, `curl`, `coreutils-sha256sum`).
    - Скачивает подходящий бинарник из GitHub Releases (на основе архитектуры роутера) и проверяет его SHA256 checksum.
    - Клонирует репозиторий [RockBlack-VPN/ip-address](https://github.com/RockBlack-VPN/ip-address) в `/opt/etc/ip-address`.
-   - Клонирует и настраивает сервис (конфиг, хук для VPN-интерфейса и задание cron для ежедневных обновлений).
+   - Настраивает сервис (конфиг, хук для VPN-интерфейса и задание cron для ежедневных обновлений).
+   - Защищает локальную сеть (192.168.0.0/16) от маршрутизации через VPN.
 
-3. **Настройте сервис**  
+4. **Настройте сервис**  
    Отредактируйте конфигурационный файл `/opt/etc/vpn-router/config.yaml`:
    ```yaml
-   vpn_interface: "ovpn_br0"  # Укажите ваш VPN-интерфейс (например, nwg0 для WireGuard, проверьте через `ifconfig` или `ip address show`)
+   vpn_interface: "nwg1"  # Укажите ваш VPN-интерфейс (например, nwg1 для WireGuard, проверьте через `ifconfig` или `ip address show`)
    repo_dir: "/opt/etc/ip-address"  # Путь к клонированному репозиторию RockBlack-VPN/ip-address
    files:
      - "Global/Youtube/youtube.bat"  # Пример: путь к файлу в репозитории RockBlack-VPN
      - "Global/Instagram/instagram.bat"
-     - "Global/Twitter/twitter.bat"
    ```
-   - **vpn_interface**: Имя вашего VPN-интерфейса (например, `ovpn_br0` для OpenVPN, `nwg0` для WireGuard).
+   - **vpn_interface**: Имя вашего VPN-интерфейса (например, `ovpn_br0` для OpenVPN, `nwg1` для WireGuard).
    - **repo_dir**: Директория, куда клонирован репозиторий [RockBlack-VPN/ip-address](https://github.com/RockBlack-VPN/ip-address) (по умолчанию `/opt/etc/ip-address`).
    - **files**: Список файлов (`.bat` или аналогичных) из репозитория [RockBlack-VPN/ip-address](https://github.com/RockBlack-VPN/ip-address) с маршрутами IP (в формате `route ADD IP MASK MASK`). Указывайте пути относительно `repo_dir`.
-
-4. **Запустите VPN-соединение**  
-   Включите VPN-соединение через веб-интерфейс Keenetic или CLI. Сервис автоматически отслеживает изменение состояния VPN (вкл/выкл) и применяет/удаляет маршруты с помощью хука в `/opt/etc/ndm/ifstatechanged.d`.
 
 5. **Протестируйте сервис**  
    Выполните команды для ручного тестирования:
    - Обновление маршрутов: `/opt/bin/vpn-router update`
    - Применение маршрутов: `/opt/bin/vpn-router start`
    - Удаление маршрутов: `/opt/bin/vpn-router stop`
+   - Проверка маршрутов: `ip route show table 1000`
 
 ## Проверка маршрутов
 
@@ -91,7 +96,7 @@ cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256
    ```bash
    ip route show table 1000
    ```
-   Вывод покажет маршруты в формате `IP/маска via шлюз dev интерфейс` (например, `1.2.3.0/24 via 10.8.0.1 dev ovpn_br0`).
+   Вывод покажет маршруты в формате `IP/маска dev интерфейс` (например, `1.2.3.0/24 dev nwg1`).
 
 2. **Проверка сохраненного списка маршрутов**:
    После обновления (`/opt/bin/vpn-router update`) маршруты сохраняются в `/opt/etc/vpn-router/current_routes.txt`. Просмотрите его:
@@ -111,14 +116,16 @@ cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256
    ```
 
 4. **Проверка логов**:
-   Логи сервиса записываются в `/var/log/messages`. Просмотрите их:
+   Логи сервиса записываются в `/var/log/messages` и `/opt/var/log/vpn-router.log`. Просмотрите их:
    ```bash
    cat /var/log/messages | grep vpn-router
+   cat /opt/var/log/vpn-router.log
    ```
 
 5. **Ручное обновление и применение**:
    Если маршруты не отображаются, обновите и примените их вручную:
    ```bash
+   ip route flush table 1000
    /opt/bin/vpn-router update
    /opt/bin/vpn-router start
    ip route show table 1000
@@ -126,10 +133,10 @@ cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256
 
 ## Логирование
 
-Логи записываются в `/var/log/messages` (syslog).  
-Для записи в файл добавьте перенаправление в хук-скрипт (`/opt/etc/vpn-router/ifstatechanged.sh`):
+Логи записываются в `/var/log/messages` (syslog) и `/opt/var/log/vpn-router.log`.  
+Для проверки логов:
 ```bash
-/opt/bin/vpn-router start >> /opt/var/log/vpn-router.log 2>&1
+cat /opt/var/log/vpn-router.log
 ```
 
 ## Подробности конфигурации
@@ -140,11 +147,11 @@ cmp /opt/bin/computed.sha256 /opt/bin/expected.sha256
 - Списка файлов с маршрутами IP.
 
 Если указанный файл отсутствует или не может быть обработан, сервис выдает предупреждение и пропускает его, используя последний действительный список маршрутов.  
-Маршруты применяются ко всем устройствам, включая сам роутер, с использованием policy routing (таблица 1000).
+Маршруты применяются ко всем устройствам, за исключением локальной сети (192.168.0.0/16), которая защищена правилом маршрутизации.
 
 Пример конфигурации для маршрутизации трафика YouTube и Instagram:
 ```yaml
-vpn_interface: "nwg0"
+vpn_interface: "nwg1"
 repo_dir: "/opt/etc/ip-address"
 files:
   - "Global/Youtube/youtube.bat"
@@ -155,7 +162,7 @@ files:
 
 Сервис обновляет списки IP ежедневно в полночь через задание cron:
 ```bash
-0 0 * * * /opt/bin/vpn-router update
+0 0 * * * /opt/bin/vpn-router update >> /opt/var/log/vpn-router.log 2>&1
 ```
 
 ### Процесс обновления:
@@ -167,9 +174,44 @@ files:
 
 ## Устранение неполадок
 
-- **VPN-интерфейс не найден**: Проверьте имя интерфейса с помощью `ifconfig` или `ip address show` и обновите `vpn_interface` в `config.yaml`.
+- **Потеря интернета или доступа к веб-интерфейсу**:
+  - **Восстановление**:
+    - Перезагрузите роутер (выключите и включите питание).
+    - Очистите таблицу маршрутов:
+      ```bash
+      ip route flush table 1000
+      /opt/bin/vpn-router stop
+      ```
+    - Отключите VPN-интерфейс:
+      ```bash
+      ifconfig nwg1 down
+      ```
+  - **Причина**: Некорректные маршруты в таблице 1000 или неактивный VPN-интерфейс. Убедитесь, что VPN работает:
+    ```bash
+    ping -I nwg1 8.8.8.8
+    ```
+  - Проверьте `/opt/etc/vpn-router/current_routes.txt` на наличие слишком широких диапазонов (например, `/11` или `/16`):
+    ```bash
+    cat /opt/etc/vpn-router/current_routes.txt
+    ```
+  - Ограничьте файлы в `config.yaml` для тестирования:
+    ```bash
+    nano /opt/etc/vpn-router/config.yaml
+    ```
+    Оставьте только один файл, например `Global/Youtube/youtube.bat`, и обновите маршруты:
+    ```bash
+    /opt/bin/vpn-router update
+    /opt/bin/vpn-router start
+    ```
+- **VPN-интерфейс не найден**:
+  - Проверьте имя интерфейса:
+    ```bash
+    ifconfig
+    ip address show
+    ```
+  - Обновите `vpn_interface` в `/opt/etc/vpn-router/config.yaml`.
 - **Маршруты не применяются**:
-  - Проверьте логи: `cat /var/log/messages | grep vpn-router`.
+  - Проверьте логи: `cat /var/log/messages | grep vpn-router` или `cat /opt/var/log/vpn-router.log`.
   - Убедитесь, что VPN включен и хук-скрипт находится в `/opt/etc/ndm/ifstatechanged.d`.
   - Проверьте таблицу маршрутов: `ip route show table 1000`.
   - Убедитесь, что `/opt/etc/vpn-router/current_routes.txt` содержит маршруты:
@@ -177,6 +219,17 @@ files:
     cat /opt/etc/vpn-router/current_routes.txt
     ```
   - Обновите маршруты вручную: `/opt/bin/vpn-router update && /opt/bin/vpn-router start`.
+- **Ошибка "RTNETLINK answers: File exists"**:
+  - Ошибка возникает, если маршруты уже существуют в таблице 1000. Хук-скрипт теперь автоматически очищает таблицу перед добавлением маршрутов. Если ошибка сохраняется:
+    ```bash
+    ip route flush table 1000
+    /opt/bin/vpn-router start
+    ```
+  - Проверьте, нет ли дубликатов в `/opt/etc/vpn-router/current_routes.txt`:
+    ```bash
+    sort -u /opt/etc/vpn-router/current_routes.txt > /opt/etc/vpn-router/current_routes.txt.new
+    mv /opt/etc/vpn-router/current_routes.txt.new /opt/etc/vpn-router/current_routes.txt
+    ```
 - **Отсутствуют файлы**: Убедитесь, что пути к файлам в `config.yaml` соответствуют структуре репозитория RockBlack-VPN:
   ```bash
   cat /opt/etc/ip-address/Global/Youtube/youtube.bat
@@ -211,8 +264,10 @@ files:
 
 Для удаления сервиса выполните:
 ```bash
-rm -rf /opt/etc/vpn-router /opt/etc/ip-address /opt/bin/vpn-router
+rm -rf /opt/etc/vpn-router /opt/etc/ip-address /opt/bin/vpn-router /opt/var/log/vpn-router.log
 rm -f /opt/etc/ndm/ifstatechanged.d/vpn-router.sh /opt/etc/cron.d/vpn-router
+ip route flush table 1000
+ip rule del from 192.168.0.0/16 lookup main prio 100 2>/dev/null
 ```
 
 ## Вклад в проект
