@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
 	"net"
 	"os"
 	"os/exec"
@@ -23,7 +22,7 @@ type Config struct {
 // loadConfig загружает конфигурацию из YAML-файла
 func loadConfig(path string) (Config, error) {
 	var config Config
-	data, err := ioutil.ReadFile(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return config, fmt.Errorf("не удалось прочитать config.yaml: %v", err)
 	}
@@ -40,7 +39,7 @@ func updateRoutes(config Config) error {
 	// 1. Чтение маршрутов из .bat файлов
 	for _, file := range config.Files {
 		path := filepath.Join(config.RepoDir, file)
-		data, err := ioutil.ReadFile(path)
+		data, err := os.ReadFile(path)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Предупреждение: не удалось прочитать %s: %v\n", path, err)
 			continue
@@ -77,7 +76,7 @@ func updateRoutes(config Config) error {
 	routes = removeDuplicates(routes)
 
 	// Сохранение маршрутов в current_routes.txt
-	if err := ioutil.WriteFile("/opt/etc/vpn-router/current_routes.txt", []byte(strings.Join(routes, "\n")+"\n"), 0644); err != nil {
+	if err := os.WriteFile("/opt/etc/vpn-router/current_routes.txt", []byte(strings.Join(routes, "\n")+"\n"), 0644); err != nil {
 		return fmt.Errorf("не удалось записать current_routes.txt: %v", err)
 	}
 	fmt.Fprintf(os.Stderr, "Маршруты успешно сохранены в /opt/etc/vpn-router/current_routes.txt\n")
@@ -117,7 +116,7 @@ func startRoutes(config Config) error {
 		fmt.Fprintf(os.Stderr, "Предупреждение: не удалось проверить правила маршрутизации: %v\n", err)
 	} else if strings.Contains(string(output), "1995") {
 		// Удаляем правило, если оно существует
-		cmd = exec.Command("ip", "rule", "del", "priority", "1995", "2>/dev/null")
+		cmd = exec.Command("ip", "rule", "del", "priority", "1995")
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Предупреждение: не удалось удалить правило с приоритетом 1995: %v\n", err)
@@ -132,16 +131,13 @@ func startRoutes(config Config) error {
 	}
 
 	// Читаем маршруты из current_routes.txt
-	data, err := ioutil.ReadFile("/opt/etc/vpn-router/current_routes.txt")
+	data, err := os.ReadFile("/opt/etc/vpn-router/current_routes.txt")
 	if err != nil {
 		return fmt.Errorf("не удалось прочитать current_routes.txt: %v", err)
 	}
 	lines := strings.Split(string(data), "\n")
 
-	// Добавляем маршруты в таблицу 1000 с улучшенной обработкой ошибок
-	successCount := 0
-	failCount := 0
-
+	// Добавляем маршруты в таблицу 1000
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -149,58 +145,15 @@ func startRoutes(config Config) error {
 		}
 		if !isValidCIDR(line) {
 			fmt.Fprintf(os.Stderr, "Предупреждение: неверный формат CIDR %s, пропускаем\n", line)
-			failCount++
 			continue
 		}
-
-		// Пробуем добавить маршрут как есть
-		cmd := exec.Command("ip", "route", "add", "table", "1000", line, "dev", config.VPNInterface, "2>/dev/null")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			fmt.Fprintf(os.Stderr, "Ошибка: не удалось добавить маршрут %s: %v, output: %s\n", line, err, string(output))
-
-			// Пробуем разбить /23 на два /24 если это необходимо
-			if strings.Contains(string(output), "Invalid argument") && strings.HasSuffix(line, "/23") {
-				fmt.Fprintf(os.Stderr, "Пробуем разбить %s на две подсети /24\n", line)
-
-				// Разбиваем /23 на два /24
-				ip, ipnet, err := net.ParseCIDR(line)
-				if err == nil {
-					// Первая подсеть /24
-					ip1 := ip.Mask(net.CIDRMask(24, 32))
-					cidr1 := fmt.Sprintf("%s/24", ip1.String())
-
-					cmd1 := exec.Command("ip", "route", "add", "table", "1000", cidr1, "dev", config.VPNInterface, "2>/dev/null")
-					if output1, err1 := cmd1.CombinedOutput(); err1 != nil {
-						fmt.Fprintf(os.Stderr, "Ошибка добавления %s: %v, output: %s\n", cidr1, err1, string(output1))
-					} else {
-						fmt.Fprintf(os.Stderr, "Успешно добавлен маршрут: %s\n", cidr1)
-						successCount++
-					}
-
-					// Вторая подсеть /24 (ip1 + 1)
-					ip2 := make(net.IP, len(ip1))
-					copy(ip2, ip1)
-					ip2[3] += 1
-					cidr2 := fmt.Sprintf("%s/24", ip2.String())
-
-					cmd2 := exec.Command("ip", "route", "add", "table", "1000", cidr2, "dev", config.VPNInterface, "2>/dev/null")
-					if output2, err2 := cmd2.CombinedOutput(); err2 != nil {
-						fmt.Fprintf(os.Stderr, "Ошибка добавления %s: %v, output: %s\n", cidr2, err2, string(output2))
-					} else {
-						fmt.Fprintf(os.Stderr, "Успешно добавлен маршрут: %s\n", cidr2)
-						successCount++
-					}
-				}
-			} else {
-				failCount++
-			}
-		} else {
-			fmt.Fprintf(os.Stderr, "Успешно добавлен маршрут: %s\n", line)
-			successCount++
+		cmd := exec.Command("ip", "route", "add", "table", "1000", line, "dev", config.VPNInterface)
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Предупреждение: не удалось добавить маршрут %s в таблицу 1000: %v\n", line, err)
+			continue // Пропускаем ошибочные маршруты
 		}
 	}
-
-	fmt.Fprintf(os.Stderr, "Маршруты применены: %d успешно, %d с ошибками\n", successCount, failCount)
+	fmt.Fprintf(os.Stderr, "Маршруты успешно применены в таблицу 1000\n")
 	return nil
 }
 
