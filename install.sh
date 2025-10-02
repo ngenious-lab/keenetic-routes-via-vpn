@@ -39,8 +39,10 @@ mkdir -p /opt/etc/vpn-router /opt/etc/ndm/ifstatechanged.d /opt/var/log
 if [ ! -f /opt/etc/vpn-router/config.yaml ]; then
   log "Создание базового config.yaml..."
   cat <<EOF > /opt/etc/vpn-router/config.yaml
-vpn_interface: "nwg1"
+vpn_interface: "interface_name"
 repo_dir: "/opt/etc/ip-address"
+files:
+  - "Global/Youtube/youtube_minimum.bat"
 ips:
   - "192.168.100.0/24"
 EOF
