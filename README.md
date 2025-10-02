@@ -13,7 +13,7 @@
 ## Установка
 
 ```bash
-curl -s https://raw.githubusercontent.com/ngenious-lab/keenetic-traffic-via-vpn/main/install.sh | sh
+curl -s https://raw.githubusercontent.com/your-repo/vpn-router/main/install.sh | sh
 ```
 
 Скрипт установки:
@@ -47,12 +47,15 @@ ips:
 ## Использование
 
 ```bash
-vpn-router [update|start|stop]
+vpn-router [update|start|stop|status|restart|update-repo]
 ```
 
 * **update** — перечитать маршруты из файлов/конфига и записать их в `current_routes.txt`, затем применить в таблицу `1000` (если VPN-интерфейс активен).
 * **start** — применить маршруты из `current_routes.txt` в таблицу `1000`.
 * **stop** — очистить таблицу маршрутов `1000` и удалить правило `prio 1995`.
+* **status** — показать состояние таблицы маршрутов и правила (`ip rule show | grep 1995`, `ip route show table 1000`).
+* **restart** — выполнить `stop`, затем `start`.
+* **update-repo** — выполнить `git pull` в каталоге `/opt/etc/ip-address`, затем автоматически запустить `vpn-router update`.
 
 ## Автообновления
 
@@ -69,10 +72,9 @@ vpn-router [update|start|stop]
 
 ### Примечания
 
-* Сам бинарник **не выполняет `git clone` и `git pull`**. Репозиторий с адресами клонируется один раз при установке, а обновляется через cron.
+* Сам бинарник **не выполняет `git clone` и `git pull`**. Репозиторий с адресами клонируется один раз при установке, а обновляется через cron или через `vpn-router update-repo`.
 * Для ручного обновления можно использовать:
 
   ```bash
-  cd /opt/etc/ip-address && git pull
-  vpn-router update
+  vpn-router update-repo
   ```
