@@ -13,7 +13,7 @@
 ## Установка
 
 ```bash
-curl -s https://raw.githubusercontent.com/your-repo/vpn-router/main/install.sh | sh
+curl -s https://raw.githubusercontent.com/ngenious-lab/keenetic-routes-via-vpn/main/install.sh | sh
 ```
 
 Скрипт установки:
