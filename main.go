@@ -12,11 +12,11 @@ import (
 )
 
 const (
-	configPath      = "/opt/etc/vpn-router/config.yaml"
-	routesFilePath  = "/opt/etc/vpn-router/current_routes.txt"
-	routeTable      = "1000"
-	rulePriority    = "1995"
-	defaultRepoDir  = "/opt/etc/ip-address"
+	configPath     = "/opt/etc/vpn-router/config.yaml"
+	routesFilePath = "/opt/etc/vpn-router/current_routes.txt"
+	routeTable     = "1000"
+	rulePriority   = "1995"
+	defaultRepoDir = "/opt/etc/ip-address"
 )
 
 type Config struct {

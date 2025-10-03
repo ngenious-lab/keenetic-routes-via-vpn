@@ -60,7 +60,7 @@ if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
 vpn_interface: "nwg1"
 repo_dir: "$IP_REPO_DIR"
 files:
-  - "Global/Youtube/youtube.bat"
+  - "Global/Youtube/youtube_minimum.bat"
 ips:
   - "192.168.100.0/24"
 EOF
@@ -98,6 +98,31 @@ EOF
 
 chmod +x "$HOOK"
 ln -sf "$HOOK" /opt/etc/ndm/ifstatechanged.d/vpn-router.sh
+
+cat <<'EOF' > /opt/etc/init.d/S99vpn-router
+#!/bin/sh
+
+ENABLED=yes
+PROCS=vpn-router
+ARGS="start"
+PREARGS=""
+DESC="VPN Router service"
+PATH=/opt/bin:/opt/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+
+. /opt/etc/init.d/rc.func
+
+start() {
+    echo "Starting $DESC..."
+    /opt/bin/vpn-router start
+}
+
+stop() {
+    echo "Stopping $DESC..."
+    /opt/bin/vpn-router stop
+}
+EOF
+
+chmod +x /opt/etc/init.d/S99vpn-router
 
 # Создание cron с git pull + vpn-router update
 cat <<EOF > "$CRON_FILE"
