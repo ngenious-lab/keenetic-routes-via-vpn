@@ -28,14 +28,15 @@ if [ ! -x "$BINARY_DEST" ]; then
   ARCH="$(uname -m)"
   case "$ARCH" in
 #    mips*)   BNAME="vpn-router-mips" ;;
-    mips*|mipsel*|mips32el*) BNAME="vpn-router-mipsel" ;;
+#    mipsel*|mips32el*) BNAME="vpn-router-mipsel" ;;
+    mips*) BNAME="vpn-router-mipsel" ;;
     aarch64*|arm64*) BNAME="vpn-router-aarch64" ;;
     arm*) echo "ARM detected, trying aarch64 build fallback"; BNAME="vpn-router-aarch64" ;;
     *) fail "Архитектура $ARCH не поддерживается в автоматическом скачивании. Соберите вручную." ;;
   esac
 
   echo "[*] Скачивание бинарника $BNAME для $ARCH..."
-  curl -fsSL -o "$BINARY_DEST" "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/v1.0.0/download/$BNAME" || fail "Не удалось скачать бинарник."
+  curl -fsSL -o "$BINARY_DEST" "https://github.com/ngenious-lab/keenetic-routes-via-vpn/releases/download/v1.0.0/$BNAME" || fail "Не удалось скачать бинарник."
   chmod +x "$BINARY_DEST"
   echo "[*] Бинарник размещён в $BINARY_DEST"
 else
