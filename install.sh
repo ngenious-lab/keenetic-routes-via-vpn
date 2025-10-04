@@ -22,6 +22,7 @@ opkg install git git-http ca-bundle ca-certificates curl coreutils-sha256sum || 
 
 # Создание директорий
 mkdir -p /opt/bin "$CONFIG_DIR" "$IP_REPO_DIR" "$LOG_DIR" /opt/etc/ndm/ifstatechanged.d
+touch "$CONFIG_DIR"/current_routes.txt
 
 # Скачивание бинарника (если не существует)
 if [ ! -x "$BINARY_DEST" ]; then
@@ -58,7 +59,7 @@ fi
 if [ ! -f "$CONFIG_DIR/config.yaml" ]; then
   echo "[*] Создаём базовый конфиг в $CONFIG_DIR/config.yaml"
   cat <<EOF > "$CONFIG_DIR/config.yaml"
-vpn_interface: "nwg1"
+vpn_interface: "tun0"
 repo_dir: "$IP_REPO_DIR"
 files:
   - "Global/Youtube/youtube_minimum.bat"
@@ -134,10 +135,10 @@ EOF
 
 echo "[*] Cron задания установлены: $CRON_FILE"
 
-echo "[*] Установка завершена. Отредактируйте $CONFIG_DIR/config.yaml при необходимости."
+echo "[*] Установка завершена. Отредактируйте $CONFIG_DIR/config.yaml перед запуском."
 echo "Примеры команд:"
-echo "  /opt/bin/vpn-router update"
+echo "  /opt/bin/vpn-router update - обновляет маршруты в table 1000"
 echo "  /opt/bin/vpn-router start"
 echo "  /opt/bin/vpn-router stop"
 echo "  /opt/bin/vpn-router status"
-echo "  /opt/bin/vpn-router update-repo"
+echo "  /opt/bin/vpn-router update-repo - обновляет репозиторий /opt/etc/ip-address"
